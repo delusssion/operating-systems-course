@@ -1,19 +1,3 @@
-// Лабораторная работа 3, вариант 4: многопоточная сортировка TimSort.
-//
-// Идея TimSort (упрощённая версия):
-//   1. Массив делится на маленькие куски длины minrun (32..64 элемента).
-//      Каждый кусок сортируется сортировкой вставками (на малых массивах она быстрая).
-//   2. Затем отсортированные куски попарно сливаются (merge):
-//      сначала куски по minrun, потом по 2*minrun, 4*minrun и т.д.,
-//      пока весь массив не станет одним отсортированным куском.
-//
-// Распараллеливание:
-//   - на шаге 1 куски независимы, поэтому раздаём их разным потокам;
-//   - на шаге 2 все слияния одного уровня тоже независимы (они не пересекаются),
-//     поэтому их тоже раздаём потокам. Следующий уровень начинается только
-//     после того, как закончились все потоки предыдущего (pthread_join).
-//   Одновременно работает не больше maxThreads потоков (ключ -t).
-
 #include <pthread.h>
 #include <unistd.h>
 
@@ -25,8 +9,6 @@
 #include <random>
 #include <vector>
 
-// Вычисление minrun так же, как в настоящем TimSort:
-// берём 6 старших бит n и добавляем 1, если среди остальных бит есть единица.
 int computeMinRun(int n) {
     int r = 0;
     while (n >= 64) {
@@ -36,7 +18,6 @@ int computeMinRun(int n) {
     return n + r;
 }
 
-// Сортировка вставками отрезка a[left..right] (включительно)
 void insertionSort(int* a, int left, int right) {
     for (int i = left + 1; i <= right; i++) {
         int key = a[i];
@@ -49,15 +30,13 @@ void insertionSort(int* a, int left, int right) {
     }
 }
 
-// Слияние двух отсортированных отрезков a[left..mid] и a[mid+1..right]
 void merge(int* a, int left, int mid, int right) {
-    // копируем левую часть во временный массив, правая остаётся на месте
     std::vector<int> leftPart(a + left, a + mid + 1);
     int leftSize = leftPart.size();
 
-    int i = 0;        // индекс в leftPart
-    int j = mid + 1;  // индекс в правой части
-    int k = left;     // куда пишем результат
+    int i = 0;
+    int j = mid + 1;
+    int k = left;
 
     while (i < leftSize && j <= right) {
         if (leftPart[i] <= a[j]) {
@@ -69,7 +48,6 @@ void merge(int* a, int left, int mid, int right) {
         }
         k++;
     }
-    // остаток левой части дописываем; остаток правой уже стоит на своём месте
     while (i < leftSize) {
         a[k] = leftPart[i];
         i++;
@@ -77,18 +55,14 @@ void merge(int* a, int left, int mid, int right) {
     }
 }
 
-// Данные, которые получает каждый поток.
-// "Блок" - это одна независимая задача: отсортировать один кусок
-// или выполнить одно слияние. Поток обрабатывает блоки с firstBlock по lastBlock.
 struct ThreadData {
     int* a;
     int n;
-    int size;  // длина куска (minrun) или ширина слияния (width)
+    int size;
     int firstBlock;
     int lastBlock;
 };
 
-// Поток для шага 1: сортировка вставками своих кусков
 void* sortRunsThread(void* arg) {
     ThreadData* data = (ThreadData*)arg;
     for (int block = data->firstBlock; block <= data->lastBlock; block++) {
@@ -99,7 +73,6 @@ void* sortRunsThread(void* arg) {
     return NULL;
 }
 
-// Поток для шага 2: слияние пар кусков длины width
 void* mergeThread(void* arg) {
     ThreadData* data = (ThreadData*)arg;
     int width = data->size;
@@ -107,15 +80,13 @@ void* mergeThread(void* arg) {
         int left = block * 2 * width;
         int mid = std::min(left + width - 1, data->n - 1);
         int right = std::min(left + 2 * width - 1, data->n - 1);
-        if (mid < right) {  // если правой части нет, сливать нечего
+        if (mid < right) {
             merge(data->a, left, mid, right);
         }
     }
     return NULL;
 }
 
-// Делит blocksCount блоков между потоками (не больше maxThreads),
-// запускает потоки с функцией threadFunc и ждёт их завершения.
 bool runInThreads(void* (*threadFunc)(void*), int* a, int n, int size,
                   int blocksCount, int maxThreads) {
     int threadsCount = std::min(maxThreads, blocksCount);
@@ -123,7 +94,6 @@ bool runInThreads(void* (*threadFunc)(void*), int* a, int n, int size,
     std::vector<pthread_t> threads(threadsCount);
     std::vector<ThreadData> data(threadsCount);
 
-    // делим блоки поровну, первые (blocksCount % threadsCount) потоков получают на 1 блок больше
     int blocksPerThread = blocksCount / threadsCount;
     int extra = blocksCount % threadsCount;
 
@@ -153,7 +123,6 @@ bool runInThreads(void* (*threadFunc)(void*), int* a, int n, int size,
         created++;
     }
 
-    // обязательно дожидаемся всех запущенных потоков
     for (int i = 0; i < created; i++) {
         int err = pthread_join(threads[i], NULL);
         if (err != 0) {
@@ -173,13 +142,11 @@ bool parallelTimSort(std::vector<int>& array, int maxThreads) {
 
     int minRun = computeMinRun(n);
 
-    // шаг 1: сортируем куски длины minRun
     int runsCount = (n + minRun - 1) / minRun;
     if (!runInThreads(sortRunsThread, a, n, minRun, runsCount, maxThreads)) {
         return false;
     }
 
-    // шаг 2: сливаем куски, каждый раз удваивая их длину
     for (int width = minRun; width < n; width *= 2) {
         int mergesCount = (n + 2 * width - 1) / (2 * width);
         if (!runInThreads(mergeThread, a, n, width, mergesCount, maxThreads)) {
@@ -205,7 +172,6 @@ int main(int argc, char* argv[]) {
     bool printArray = false;
     bool check = false;
 
-    // разбор ключей запуска
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-t") == 0 && i + 1 < argc) {
             maxThreads = atoi(argv[i + 1]);
@@ -226,7 +192,6 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // ограничение на n, чтобы индексы в merge не вышли за пределы int
     if (maxThreads <= 0 || n <= 0 || n > 500000000) {
         printUsage(argv[0]);
         return 1;
@@ -234,7 +199,6 @@ int main(int argc, char* argv[]) {
 
     std::cerr << "pid: " << getpid() << std::endl;
 
-    // заполняем массив случайными числами
     std::vector<int> array(n);
     std::mt19937 generator(seed);
     std::uniform_int_distribution<int> distribution(-1000000, 1000000);
