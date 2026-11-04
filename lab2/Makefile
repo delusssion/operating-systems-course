@@ -1,13 +1,13 @@
-CXX = clang++
-CXXFLAGS = -std=c++17 -Wall -Wextra
+CC = cc
+CFLAGS = -std=gnu11 -Wall -Wextra
 
 all: parent child
 
-parent: parent.cpp
-	$(CXX) $(CXXFLAGS) -o parent parent.cpp
+parent: parent.c
+	$(CC) $(CFLAGS) -o parent parent.c
 
-child: child.cpp
-	$(CXX) $(CXXFLAGS) -o child child.cpp
+child: child.c
+	$(CC) $(CFLAGS) -o child child.c
 
 clean:
 	rm -f parent child
