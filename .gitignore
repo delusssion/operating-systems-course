@@ -1,0 +1,8 @@
+# build files
+lab2/parent
+lab2/child
+lab2/*.txt
+!lab2/input.txt
+lab3/timsort
+*.o
+.DS_Store
